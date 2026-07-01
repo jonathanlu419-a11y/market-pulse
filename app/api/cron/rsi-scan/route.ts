@@ -14,41 +14,26 @@ export const maxDuration = 60;
 const LOOKBACK_CALENDAR_DAYS = 190; // ≈130 trading days — ample seed for a stable Wilder RSI24
 const KEEP_BARS = 90; // trim cached history to the last ~90 trading days
 const DEFAULT_DELAY_MS = TD_FREE_DELAY_MS; // 7500ms — respect Twelve Data free tier (8 credits/min)
-// Below this size a universe *could* fit under a data provider's limit in one run,
-// so batching auto-disables. Kept as a dormant safety valve (see rate-limit note).
-const BATCH_THRESHOLD = 200;
-// Stop fetching before Hobby's 60s hard limit and persist progress cleanly.
+// Safety net: stop fetching before Hobby's 60s hard limit and persist progress.
 const RUN_BUDGET_MS = 50_000;
 
 // ┌───────────────────────────────────────────────────────────────────────────┐
-// │ ⚠ TWELVE DATA FREE-TIER RATE LIMIT (data source for RSI alerts)            │
-// │ Basic/free plan = 8 API credits/MINUTE, 800/day. /time_series = 1 credit   │
-// │ per symbol, and the per-minute cap is CREDITS (batching doesn't help).     │
-// │ ⇒ ~8 symbols/minute max; each call is paced DEFAULT_DELAY_MS (7.5s) apart. │
+// │ Universe is now a small WATCHLIST (data/watchlist.json, ~16 tickers) — the │
+// │ 517-ticker index universe and its day-batching workaround are gone.        │
 // │                                                                             │
-// │ A Vercel cron function can't stay alive long enough to fetch a large       │
-// │ universe: ~517 symbols ≈ 65 min, ~101 ≈ 13 min, both ≫ the 60s limit. So   │
-// │ RUN_BUDGET_MS stops each run early (~6 symbols) and persists what it did.  │
-// │                                                                             │
-// │ To cover a large universe on the free tier, set RSI_BATCH_COUNT high       │
-// │ (≈ ceil(universe / 6)) so each day scans a rotating 1/N slice by           │
-// │ day-of-year — but that means a symbol is only refreshed every N days, so   │
-// │ "today's crossover" is really N-days-stale. For reliable daily full-       │
-// │ universe scans, UPGRADE Twelve Data (credits/min ≥ universe → one batch    │
-// │ call in seconds) or keep the universe ≤ ~6 symbols.                        │
+// │ ⚠ TWELVE DATA FREE TIER = 8 credits/min (1 per symbol). So ~16 tickers need │
+// │ ~2 min of credits — more than one 60s run holds. RUN_BUDGET_MS stops a run  │
+// │ at ~6 fetched symbols. But because already-fresh-today symbols are SKIPPED  │
+// │ (0 credits), running the scan again advances to the next un-fetched batch — │
+// │ so 2–3 runs a few minutes apart cover the whole watchlist the same day.     │
+// │ For a guaranteed single run with no stoppedEarly, keep the watchlist ≤ ~6   │
+// │ tickers, or upgrade Twelve Data (credits/min ≥ watchlist size).             │
 // └───────────────────────────────────────────────────────────────────────────┘
 
 function utcDateKey(offsetDays = 0): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().slice(0, 10);
-}
-
-function dayOfYearUTC(): number {
-  const now = new Date();
-  const start = Date.UTC(now.getUTCFullYear(), 0, 0);
-  const diff = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - start;
-  return Math.floor(diff / 86_400_000);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -87,13 +72,10 @@ export async function GET(request: Request) {
   }
 
   const delayMs = Number(process.env.RSI_SCAN_DELAY_MS) || DEFAULT_DELAY_MS;
-  const requestedBatchCount = Math.max(1, parseInt(process.env.RSI_BATCH_COUNT || '1', 10) || 1);
-  // Auto-disable batching for small universes — they fit under the free tier in one run.
-  const batchCount = UNIVERSE.length < BATCH_THRESHOLD ? 1 : requestedBatchCount;
-  const batchIndex = batchCount > 1 ? dayOfYearUTC() % batchCount : 0;
 
-  // Deterministic slice of the (symbol-sorted) universe for today's batch
-  const symbols = UNIVERSE.filter((_, i) => batchCount === 1 || i % batchCount === batchIndex);
+  // Scan the whole watchlist in order. Already-fresh symbols are skipped cheaply,
+  // so successive runs advance through the list (no day-slicing needed).
+  const symbols = UNIVERSE;
 
   const today = utcDateKey(0);
   const backfillFrom = utcDateKey(-LOOKBACK_CALENDAR_DAYS);
@@ -158,7 +140,6 @@ export async function GET(request: Request) {
     generatedAt: new Date().toISOString(),
     scanned,
     universeSize: UNIVERSE.length,
-    ...(batchCount > 1 ? { batch: { index: batchIndex, count: batchCount } } : {}),
   };
 
   await setLatestAlerts(payload);
@@ -169,9 +150,9 @@ export async function GET(request: Request) {
     failed,
     alerts: alerts.length,
     universeSize: UNIVERSE.length,
-    sliceSize: symbols.length,
-    stoppedEarly, // true = hit RUN_BUDGET_MS before finishing this slice (free-tier limit)
-    batch: batchCount > 1 ? { index: batchIndex, count: batchCount } : null,
+    // true = hit RUN_BUDGET_MS before finishing the watchlist; run again to continue
+    // (already-fresh symbols are skipped, so it advances to the rest).
+    stoppedEarly,
     generatedAt: payload.generatedAt,
   });
 }

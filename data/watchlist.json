@@ -1,0 +1,18 @@
+[
+  { "symbol": "AAPL",  "name": "Apple Inc.",              "sector": "Information Technology" },
+  { "symbol": "MSFT",  "name": "Microsoft",               "sector": "Information Technology" },
+  { "symbol": "GOOGL", "name": "Alphabet Inc. (Class A)", "sector": "Communication Services" },
+  { "symbol": "AMZN",  "name": "Amazon",                  "sector": "Consumer Discretionary" },
+  { "symbol": "META",  "name": "Meta Platforms",          "sector": "Communication Services" },
+  { "symbol": "NVDA",  "name": "Nvidia",                  "sector": "Information Technology" },
+  { "symbol": "TSLA",  "name": "Tesla, Inc.",             "sector": "Consumer Discretionary" },
+  { "symbol": "AMD",   "name": "Advanced Micro Devices",  "sector": "Information Technology" },
+  { "symbol": "PLTR",  "name": "Palantir Technologies",   "sector": "Information Technology" },
+  { "symbol": "AVGO",  "name": "Broadcom",                "sector": "Information Technology" },
+  { "symbol": "CRM",   "name": "Salesforce",              "sector": "Information Technology" },
+  { "symbol": "NFLX",  "name": "Netflix",                 "sector": "Communication Services" },
+  { "symbol": "SOFI",  "name": "SoFi Technologies",       "sector": "Financials" },
+  { "symbol": "COIN",  "name": "Coinbase",                "sector": "Financials" },
+  { "symbol": "MSTR",  "name": "MicroStrategy",           "sector": "Information Technology" },
+  { "symbol": "SMCI",  "name": "Supermicro",              "sector": "Information Technology" }
+]
