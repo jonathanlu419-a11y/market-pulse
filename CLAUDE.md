@@ -65,11 +65,13 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 
 ## Deployment
 - **GitHub**: `jonathanlu419-a11y/market-pulse` (public).
-- **Vercel**: project **`traderpwa-pro`** → https://traderpwa-pro.vercel.app (URL intentionally kept despite the rename).
-- **Auto-deploy on push to `main`** once the Vercel project is git-connected (see Open items).
-- CLI deploy (works today, from this non-standard dir):
+- **Vercel (primary)**: project **`market-pulse`** (team `eastlink`) → https://market-pulse-mu-nine.vercel.app
+  - **Auto-deploy on push to `main`** once the Vercel project is git-connected (see Open items — git connect not yet completed; CLI can't do the GitHub App OAuth).
+  - Local dir is linked to this project (`.vercel/project.json` → `market-pulse`).
+- **Vercel (prior/parallel, NOT primary, NOT deleted)**: project **`traderpwa-pro`** → https://traderpwa-pro.vercel.app — an earlier parallel deployment of this same codebase. Left as-is and unmanaged; do not deploy to it or change it.
+- CLI deploy to market-pulse (works today, from this non-standard dir):
   ```bash
-  npx vercel --cwd "C:\Users\Jonathan Lu\trader-pwa" --prod
+  npx vercel --cwd "C:\Users\Jonathan Lu\trader-pwa" --prod --scope eastlink
   ```
 - Before "done": run `npx next build` and `npx eslint app lib`.
 
@@ -80,12 +82,13 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 - The repo remote is **HTTPS** (SSH failed host-key verification on this machine; HTTPS + `gh` credential helper works). Don't assume the "default" account or SSH.
 
 ## Open items / next steps
-- **KV not yet provisioned** (as of this writing): add a KV store in the Vercel dashboard (**Storage → Create → KV**) and connect it to `traderpwa-pro`. Until then `/alerts` shows the graceful empty state.
+- **Env vars on `market-pulse`**: none set yet. Must add all in the dashboard: `FMP_API_KEY`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `CRON_SECRET`, `RSI_BATCH_COUNT`. (traderpwa-pro only ever had `FMP_API_KEY`.)
+- **KV not yet provisioned** (never was, on either project): add storage under the **`market-pulse`** project. Vercel KV is deprecated → use the **Upstash Redis** integration from the Vercel Marketplace (still sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, compatible with `@vercel/kv`). KV is **per-project** — it does not carry over from any other project. Until set, `/alerts` shows the graceful empty state.
 - **First cron run** must be triggered **manually once** after KV + `CRON_SECRET` are set:
   ```bash
-  curl -H "Authorization: Bearer <CRON_SECRET>" https://traderpwa-pro.vercel.app/api/cron/rsi-scan
+  curl -H "Authorization: Bearer <CRON_SECRET>" https://market-pulse-mu-nine.vercel.app/api/cron/rsi-scan
   ```
-- **Git connect**: `vercel git connect` failed from CLI (Vercel GitHub App lacks repo access + needs interactive confirm). Connect via dashboard: **traderpwa-pro → Settings → Git → Connect Git Repository → `jonathanlu419-a11y/market-pulse`**. Re-verify all env vars afterward.
+- **Git connect (blocked via CLI)**: `vercel git connect` fails headlessly (Vercel GitHub App OAuth can't complete without a browser). Connect via dashboard: **market-pulse → Settings → Git → Connect Git Repository → authorize the Vercel GitHub App for `jonathanlu419-a11y` → select `jonathanlu419-a11y/market-pulse`**. After connecting, push-to-`main` auto-deploys.
 - **Russell index deliberately excluded** from the alert universe for now (S&P 500 + Nasdaq 100 only).
 
 @AGENTS.md
