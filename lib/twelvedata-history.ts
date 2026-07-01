@@ -1,7 +1,7 @@
 /**
  * Twelve Data daily close-price fetch for the RSI ALERTS feature.
- * Replaces lib/fmp-history.ts for alerts only — the earnings countdown keeps
- * using FMP directly (see app/api/earnings/route.ts), untouched.
+ * Separate from the earnings countdown, which uses Finnhub
+ * (see app/api/earnings/route.ts).
  *
  * Endpoint (verified against twelvedata.com/docs):
  *   GET https://api.twelvedata.com/time_series
@@ -50,9 +50,8 @@ interface TDResponse {
  * Fetch daily closes for a symbol, chronological order (oldest first).
  * - `startDate` set → request only bars on/after it (incremental append).
  * - `startDate` absent → fetch a fresh `outputsize`-bar window (one-time backfill).
- * Signature mirrors the old FMP helper so the cron loop is unchanged; `endDate`
- * is accepted for compatibility but unused (TD returns up to the latest close).
- * Throws on HTTP / API errors so the caller can try/catch and skip per-symbol.
+ * `endDate` is accepted for call-site compatibility but unused (TD returns up to
+ * the latest close). Throws on HTTP / API errors so the caller can try/catch per-symbol.
  */
 export async function fetchDailyCloses(
   symbol: string,

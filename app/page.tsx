@@ -157,7 +157,7 @@ export default function Home() {
             <p className="font-semibold text-red-300">Couldn&apos;t load earnings data</p>
             <p className="mt-1 text-sm text-slate-400">{error}</p>
             <p className="mt-3 text-xs text-slate-500">
-              Make sure <code className="rounded bg-white/10 px-1">FMP_API_KEY</code> is set in your environment.
+              Make sure <code className="rounded bg-white/10 px-1">FINNHUB_API_KEY</code> is set in your environment.
             </p>
           </div>
         ) : filtered.length === 0 ? (

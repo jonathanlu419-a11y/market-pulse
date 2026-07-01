@@ -13,14 +13,14 @@ Reference for future Claude Code sessions. Keep it current.
 - **Tailwind CSS** (v4)
 - **Render Postgres** (`pg`) — cache for price history + computed alerts. A **separate `market_pulse` database within the same Render Postgres instance** used by the finance-app (NOT shared tables). Replaced the former Vercel KV / Redis backend.
 - **Vercel Cron** — triggers the daily RSI scan
-- **Data sources (two, split by feature)**: **Twelve Data** — daily prices for the RSI **alerts** (`/time_series`, free tier). **FMP (Financial Modeling Prep)** — the earnings **countdown** only. They're independent; a key for one doesn't affect the other.
+- **Data sources (two, split by feature)**: **Twelve Data** — daily prices for the RSI **alerts** (`/time_series`, free tier). **Finnhub** — the earnings **countdown** only (`/calendar/earnings`, free tier 60 calls/min). They're independent; a key for one doesn't affect the other. (FMP was used for earnings previously but hit HTTP 429 rate limits — replaced by Finnhub.)
 
 ## Layout
 ```
 app/
   page.tsx                     # earnings countdown homepage (client)
   alerts/page.tsx              # RSI alerts table (client)
-  api/earnings/route.ts        # FMP earnings-calendar, 6h cache, S&P500 cross-ref
+  api/earnings/route.ts        # Finnhub /calendar/earnings, 6h cache, watchlist filter
   api/cron/rsi-scan/route.ts   # daily scan: fetch → RSI → crossover → write Postgres
   api/alerts/rsi-cross/route.ts# fast Postgres read for the /alerts page
 lib/
@@ -30,8 +30,8 @@ lib/
   db.ts                        # Render Postgres cache (graceful when unconfigured)
   types.ts                     # shared types
 data/
-  watchlist.json               # curated RSI-alerts watchlist (symbol, name, sector) — EDIT THIS
-  sp500.json                   # S&P 500 constituents — earnings feature + index badges
+  watchlist.json               # curated watchlist — RSI alerts AND earnings filter (symbol, name, sector) — EDIT THIS
+  sp500.json                   # S&P 500 constituents — index badges only
   nasdaq100.json               # Nasdaq 100 constituents — index badges only
 migrations/
   001_init_rsi_cache.sql       # price_history + rsi_alerts_latest tables
@@ -61,12 +61,12 @@ vercel.json                    # cron schedule (22:30 UTC)
 | Var | Purpose |
 |-----|---------|
 | `TWELVE_DATA_API_KEY` | Twelve Data key — **RSI alerts** data source. Free tier 8 credits/min, 800/day. **Only ever via `process.env`.** |
-| `FMP_API_KEY` | FMP key — **earnings countdown** only (no longer used by alerts). **Only ever via `process.env`.** Coexists with the Twelve Data key. |
+| `FINNHUB_API_KEY` | Finnhub key — **earnings countdown** only (`/calendar/earnings`, free tier 60 calls/min). **Only ever via `process.env`.** Coexists with the Twelve Data key. Replaced `FMP_API_KEY`. |
 | `MARKET_PULSE_DATABASE_URL` | Render Postgres connection string for the `market_pulse` DB. **Use the POOLED/PgBouncer variant.** Separate DB in the same instance as the finance-app (not shared tables). |
 | `CRON_SECRET` | Guards `/api/cron/rsi-scan`; sent by Vercel Cron as `Authorization: Bearer <value>`. |
 | `RSI_BATCH_COUNT` | **Obsolete / ignored** — day-batching was removed with the switch to a small watchlist. Safe to leave unset. |
 | `RSI_SCAN_DELAY_MS` | Optional; ms between symbol fetches (default 7500 = Twelve Data 8/min). |
-| `RSI_SCAN_DELAY_MS` | Optional; gap between FMP calls (default 150). |
+| `RSI_SCAN_DELAY_MS` | Optional; ms between Twelve Data calls (default 7500 = 8/min). |
 
 Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values.
 
@@ -95,7 +95,7 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 
 ## Open items / next steps
 - **Git connect**: ✅ DONE — repo is connected, push-to-`main` auto-deploys to the personal `market-pulse`.
-- **Env vars on the personal `market-pulse`**: none set yet. Add in the dashboard (Settings → Environment Variables): `TWELVE_DATA_API_KEY` (alerts data source), `FMP_API_KEY` (earnings; copy the value from traderpwa-pro), `MARKET_PULSE_DATABASE_URL` (the **pooled** Render Postgres string), `CRON_SECRET` (new random string). `RSI_BATCH_COUNT` is no longer needed (day-batching removed).
+- **Env vars on the personal `market-pulse`**: none set yet. Add in the dashboard (Settings → Environment Variables): `TWELVE_DATA_API_KEY` (alerts data source), `FINNHUB_API_KEY` (earnings countdown — sign up at finnhub.io), `MARKET_PULSE_DATABASE_URL` (the **pooled** Render Postgres string), `CRON_SECRET` (new random string). `RSI_BATCH_COUNT` is no longer needed (day-batching removed). `FMP_API_KEY` is no longer used anywhere.
 - **Render Postgres DB not yet provisioned**: create a **separate `market_pulse` database** within the existing Render Postgres instance (same one the finance-app uses — NOT shared tables), run `migrations/001_init_rsi_cache.sql` against it, and put the **pooled** connection string in `MARKET_PULSE_DATABASE_URL`. Until set, `/alerts` shows the graceful empty state.
 - **First cron run** must be triggered **manually** after the DB + `TWELVE_DATA_API_KEY` + `CRON_SECRET` are set:
   ```bash

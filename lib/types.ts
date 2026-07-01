@@ -9,7 +9,7 @@ export interface EarningsRow {
   time: 'bmo' | 'amc' | null;
   /** Whole calendar days from server "today" to the earnings date (client recomputes live) */
   daysRemaining: number;
-  /** Analyst EPS estimate, if provided by FMP */
+  /** Analyst EPS estimate, if provided by Finnhub */
   epsEstimated: number | null;
 }
 
