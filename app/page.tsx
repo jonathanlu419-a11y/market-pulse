@@ -97,7 +97,7 @@ export default function Home() {
       <header className="pt-8 pb-5 sm:pt-12">
         <div className="flex items-start justify-between gap-3">
           <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
-            Watchlist Earnings Countdown
+            S&amp;P 500 Earnings Countdown
           </h1>
           <Link
             href="/alerts"

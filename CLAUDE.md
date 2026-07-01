@@ -4,8 +4,10 @@ Reference for future Claude Code sessions. Keep it current.
 
 ## Project overview
 - **Market Pulse** — a personal web app with two features:
-  1. **Earnings countdown** (`/`) — upcoming earnings for the curated **watchlist** (`data/watchlist.json`), sorted by live countdown (soonest first), searchable.
-  2. **RSI crossover alerts** (`/alerts`) — daily scan of the same **watchlist** for an RSI6-over-RSI12/24 crossover signal.
+  1. **Earnings countdown** (`/`) — upcoming earnings for the **full S&P 500** (`data/sp500.json`, ~503 tickers) via **Finnhub**, sorted by live countdown (soonest first), searchable.
+  2. **RSI crossover alerts** (`/alerts`) — daily scan of a small **16-ticker watchlist** (`data/watchlist.json`) via **Twelve Data** for an RSI6-over-RSI12/24 crossover signal.
+
+  > ⚠️ **The two features use DIFFERENT universes and data sources — do not conflate them.** Earnings = full S&P 500 via Finnhub; RSI alerts = the 16-ticker watchlist via Twelve Data. Changing one must not touch the other (or `lib/twelvedata-history.ts`).
 - **Audience**: Jonathan only — solo personal project, not a team/product.
 
 ## Tech stack
@@ -13,14 +15,14 @@ Reference for future Claude Code sessions. Keep it current.
 - **Tailwind CSS** (v4)
 - **Render Postgres** (`pg`) — cache for price history + computed alerts. A **separate `market_pulse` database within the same Render Postgres instance** used by the finance-app (NOT shared tables). Replaced the former Vercel KV / Redis backend.
 - **Vercel Cron** — triggers the daily RSI scan
-- **Data sources (two, split by feature)**: **Twelve Data** — daily prices for the RSI **alerts** (`/time_series`, free tier). **Finnhub** — the earnings **countdown** only (`/calendar/earnings`, free tier 60 calls/min). They're independent; a key for one doesn't affect the other. (FMP was used for earnings previously but hit HTTP 429 rate limits — replaced by Finnhub.)
+- **Data sources (two, split by feature)**: **Twelve Data** — daily prices for the RSI **alerts** over the 16-ticker watchlist (`/time_series`, free tier). **Finnhub** — the earnings **countdown** over the **full S&P 500** (`/calendar/earnings`, free tier 60 calls/min; one whole-market call per 6h regardless of universe size, filtered to sp500.json in memory). They're independent; a key for one doesn't affect the other. (FMP was used for earnings previously but hit HTTP 429 rate limits — replaced by Finnhub.)
 
 ## Layout
 ```
 app/
   page.tsx                     # earnings countdown homepage (client)
   alerts/page.tsx              # RSI alerts table (client)
-  api/earnings/route.ts        # Finnhub /calendar/earnings, 6h cache, watchlist filter
+  api/earnings/route.ts        # Finnhub /calendar/earnings, 6h cache, FULL S&P 500 filter (sp500.json)
   api/cron/rsi-scan/route.ts   # daily scan: fetch → RSI → crossover → write Postgres
   api/alerts/rsi-cross/route.ts# fast Postgres read for the /alerts page
 lib/
@@ -30,8 +32,8 @@ lib/
   db.ts                        # Render Postgres cache (graceful when unconfigured)
   types.ts                     # shared types
 data/
-  watchlist.json               # curated watchlist — RSI alerts AND earnings filter (symbol, name, sector) — EDIT THIS
-  sp500.json                   # S&P 500 constituents — index badges only
+  watchlist.json               # 16-ticker watchlist — RSI ALERTS scan universe (symbol, name, sector)
+  sp500.json                   # S&P 500 constituents — EARNINGS scan universe + index badges
   nasdaq100.json               # Nasdaq 100 constituents — index badges only
 migrations/
   001_init_rsi_cache.sql       # price_history + rsi_alerts_latest tables

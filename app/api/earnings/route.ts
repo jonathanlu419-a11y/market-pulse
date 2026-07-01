@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import watchlist from '@/data/watchlist.json';
+import sp500 from '@/data/sp500.json';
 import type { EarningsRow, EarningsResponse } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -23,13 +23,16 @@ interface FinnhubEarning {
   year?: number;
 }
 
-interface WatchlistCompany {
+interface SP500Company {
   symbol: string;
   name: string;
   sector: string;
 }
 
-const WATCHLIST = watchlist as WatchlistCompany[];
+// Earnings scans the FULL S&P 500 (data/sp500.json, ~503 tickers).
+// NOTE: this is intentionally SEPARATE from the RSI alerts feature, which scans
+// the small data/watchlist.json via Twelve Data. Don't conflate the two.
+const SP500 = sp500 as SP500Company[];
 
 /** UTC date string N days from now, YYYY-MM-DD */
 function dateKey(offsetDays = 0): string {
@@ -68,7 +71,7 @@ export async function GET() {
 
   const from = today;
   const to = dateKey(WINDOW_DAYS);
-  // One call covers the whole market for the date range; we filter to the watchlist below.
+  // One call covers the whole market for the date range; we filter to the S&P 500 below.
   const url = `${FINNHUB_BASE}/calendar/earnings?from=${from}&to=${to}&token=${apiKey}`;
 
   let raw: FinnhubEarning[];
@@ -83,15 +86,15 @@ export async function GET() {
     return empty(String(e));
   }
 
-  // Index the watchlist for O(1) lookup — Finnhub returns the whole market.
-  const index = new Map<string, WatchlistCompany>();
-  for (const c of WATCHLIST) index.set(c.symbol, c);
+  // Index the S&P 500 for O(1) lookup — Finnhub returns the whole market.
+  const index = new Map<string, SP500Company>();
+  for (const c of SP500) index.set(c.symbol, c);
 
-  // Keep the earliest UPCOMING (not-yet-reported) earnings date per watchlist symbol
+  // Keep the earliest UPCOMING (not-yet-reported) earnings date per S&P 500 symbol
   const earliest = new Map<string, FinnhubEarning>();
   for (const item of raw) {
     const company = index.get(item.symbol);
-    if (!company) continue; // not in the watchlist → omit
+    if (!company) continue; // not in the S&P 500 → omit
     if (item.date < today) continue; // already past
     if (item.epsActual !== null && item.epsActual !== undefined) continue; // already reported
     const existing = earliest.get(item.symbol);
@@ -103,7 +106,7 @@ export async function GET() {
     const company = index.get(symbol)!;
     rows.push({
       symbol,
-      name: company.name, // Finnhub omits company name → fall back to the watchlist
+      name: company.name, // Finnhub omits company name → fall back to the S&P 500 list
       sector: company.sector,
       earningsDate: item.date,
       time: normalizeTime(item.hour),
