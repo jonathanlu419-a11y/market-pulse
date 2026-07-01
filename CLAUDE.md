@@ -11,7 +11,7 @@ Reference for future Claude Code sessions. Keep it current.
 ## Tech stack
 - **Next.js 14+ App Router** + **TypeScript**
 - **Tailwind CSS** (v4)
-- **Vercel KV** (Upstash Redis) — cache for price history + computed alerts
+- **Render Postgres** (`pg`) — cache for price history + computed alerts. A **separate `market_pulse` database within the same Render Postgres instance** used by the finance-app (NOT shared tables). Replaced the former Vercel KV / Redis backend.
 - **Vercel Cron** — triggers the daily RSI scan
 - **Financial Modeling Prep (FMP)** — market data source (free tier)
 
@@ -21,17 +21,19 @@ app/
   page.tsx                     # earnings countdown homepage (client)
   alerts/page.tsx              # RSI alerts table (client)
   api/earnings/route.ts        # FMP earnings-calendar, 6h cache, S&P500 cross-ref
-  api/cron/rsi-scan/route.ts   # daily scan: fetch → RSI → crossover → write KV
-  api/alerts/rsi-cross/route.ts# fast KV read for the /alerts page
+  api/cron/rsi-scan/route.ts   # daily scan: fetch → RSI → crossover → write Postgres
+  api/alerts/rsi-cross/route.ts# fast Postgres read for the /alerts page
 lib/
   universe.ts                  # merges sp500 + nasdaq100 → deduped universe
   rsi.ts                       # Wilder RSI + crossover detection
   fmp-history.ts               # FMP daily close fetch (incremental)
-  kv.ts                        # Vercel KV wrapper (graceful when unconfigured)
+  db.ts                        # Render Postgres cache (graceful when unconfigured)
   types.ts                     # shared types
 data/
   sp500.json                   # S&P 500 constituents (symbol, name, sector)
   nasdaq100.json               # Nasdaq 100 constituents
+migrations/
+  001_init_rsi_cache.sql       # price_history + rsi_alerts_latest tables
 vercel.json                    # cron schedule (22:30 UTC)
 ```
 
@@ -41,10 +43,11 @@ vercel.json                    # cron schedule (22:30 UTC)
   - ⚠️ **Trap**: `/api/v3/historical-price-full/...` is a **dead "Legacy Endpoint"** on this key (accounts created after 2025-08-31). The hyphenated `/stable/historical-price-eod-full` **404s**. Only the `.../light` (or `.../full` with a slash) path returns data. See [fmp-history.ts](lib/fmp-history.ts).
 - **RSI**: Wilder's smoothing in [lib/rsi.ts](lib/rsi.ts). Validated against the canonical 14-period reference: **70.46 / 66.25 / 37.79**. Periods 6/12/24 match Futu's default RSI1/RSI2/RSI3.
 - **Crossover definition** (`detectCrossover`): RSI6 crosses **above BOTH** RSI12 and RSI24 on the **current trading day only** — i.e. today `RSI6 > RSI12 && RSI6 > RSI24`, and yesterday it was **not** already above both. This is a **"today only" event**, not a persistent "currently above" state.
-- **KV cache keys**:
-  - `price-history:{symbol}` → last ~90 daily `{date, close}` bars
-  - `rsi-alerts:latest` → most recent computed alert list + metadata
-- **Graceful KV degradation**: [lib/kv.ts](lib/kv.ts) returns empty/null instead of throwing when `KV_REST_API_URL` / `KV_REST_API_TOKEN` are absent. The `/alerts` page then shows a friendly "not available yet" state rather than erroring. Builds work without KV.
+- **Postgres cache** ([lib/db.ts](lib/db.ts), schema [migrations/001_init_rsi_cache.sql](migrations/001_init_rsi_cache.sql)):
+  - `price_history` table (PK `symbol`, JSONB `data`) → last ~90 daily `{date, close}` bars per symbol
+  - `rsi_alerts_latest` table (single row `id=1`, JSONB `alerts`) → stores the **full** `RsiAlertsPayload` (array + scanned/universeSize/batch/generatedAt) so the UI keeps all fields
+  - ⚠️ **Use the POOLED (PgBouncer) connection string** for `MARKET_PULSE_DATABASE_URL`, not the direct one — serverless opens many short-lived connections and can exhaust `max_connections`. Pool is a module-level singleton (`max: 3`), SSL `rejectUnauthorized: false` (Render requires SSL).
+- **Graceful DB degradation**: [lib/db.ts](lib/db.ts) returns null/false instead of throwing when `MARKET_PULSE_DATABASE_URL` is absent or a query fails. The `/alerts` page then shows a friendly "not available yet" state. Builds work without the DB.
 - **Incremental fetch**: cron appends only new days to cached history when possible (1 FMP call/ticker steady state), full backfill only on first run per symbol.
 
 ## Known constraints
@@ -55,8 +58,7 @@ vercel.json                    # cron schedule (22:30 UTC)
 | Var | Purpose |
 |-----|---------|
 | `FMP_API_KEY` | FMP data source. **Only ever via `process.env`, never hardcoded.** |
-| `KV_REST_API_URL` | Vercel KV endpoint (auto-set by the KV integration). |
-| `KV_REST_API_TOKEN` | Vercel KV token (auto-set by the KV integration). |
+| `MARKET_PULSE_DATABASE_URL` | Render Postgres connection string for the `market_pulse` DB. **Use the POOLED/PgBouncer variant.** Separate DB in the same instance as the finance-app (not shared tables). |
 | `CRON_SECRET` | Guards `/api/cron/rsi-scan`; sent by Vercel Cron as `Authorization: Bearer <value>`. |
 | `RSI_BATCH_COUNT` | Splits the universe across N days (free-tier workaround; use `3`, or `1` on a paid FMP plan). |
 | `RSI_SCAN_DELAY_MS` | Optional; gap between FMP calls (default 150). |
@@ -88,9 +90,9 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 
 ## Open items / next steps
 - **Git connect**: ✅ DONE — repo is connected, push-to-`main` auto-deploys to the personal `market-pulse`.
-- **Env vars on the personal `market-pulse`**: none set yet. Add all in the dashboard (Settings → Environment Variables): `FMP_API_KEY` (copy the value from traderpwa-pro), `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `CRON_SECRET` (new random string), `RSI_BATCH_COUNT=3`.
-- **KV not yet provisioned**: add storage under the personal **`market-pulse`** project. Vercel KV is deprecated → use the **Upstash Redis** integration from the Vercel Marketplace (Storage tab; still sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, compatible with `@vercel/kv`). Per-project — does not carry over. Until set, `/alerts` shows the graceful empty state.
-- **First cron run** must be triggered **manually once** after KV + `CRON_SECRET` are set:
+- **Env vars on the personal `market-pulse`**: none set yet. Add all in the dashboard (Settings → Environment Variables): `FMP_API_KEY` (copy the value from traderpwa-pro), `MARKET_PULSE_DATABASE_URL` (the **pooled** Render Postgres string), `CRON_SECRET` (new random string), `RSI_BATCH_COUNT=3`.
+- **Render Postgres DB not yet provisioned**: create a **separate `market_pulse` database** within the existing Render Postgres instance (same one the finance-app uses — NOT shared tables), run `migrations/001_init_rsi_cache.sql` against it, and put the **pooled** connection string in `MARKET_PULSE_DATABASE_URL`. Until set, `/alerts` shows the graceful empty state.
+- **First cron run** must be triggered **manually once** after the DB + `CRON_SECRET` are set:
   ```bash
   curl -H "Authorization: Bearer <CRON_SECRET>" https://market-pulse-tau-ten.vercel.app/api/cron/rsi-scan
   ```

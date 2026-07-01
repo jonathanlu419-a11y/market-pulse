@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { kvGet, isKVConfigured, RSI_ALERTS_KEY } from '@/lib/kv';
+import { getLatestAlerts, isDBConfigured } from '@/lib/db';
 import { UNIVERSE } from '@/lib/universe';
 import type { RsiAlertsPayload } from '@/lib/types';
 
@@ -15,14 +15,14 @@ export async function GET() {
     universeSize: UNIVERSE.length,
   };
 
-  if (!isKVConfigured()) {
+  if (!isDBConfigured()) {
     return NextResponse.json<RsiAlertsPayload>(
-      { ...emptyBase, error: 'KV not configured — run the RSI scan once KV is set up.' },
+      { ...emptyBase, error: 'Database not configured — set MARKET_PULSE_DATABASE_URL and run the RSI scan.' },
       { status: 200 }
     );
   }
 
-  const payload = await kvGet<RsiAlertsPayload>(RSI_ALERTS_KEY);
+  const payload = await getLatestAlerts();
   if (!payload) {
     return NextResponse.json<RsiAlertsPayload>(
       { ...emptyBase, error: 'No scan has run yet.' },

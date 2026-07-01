@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { UNIVERSE } from '@/lib/universe';
 import { detectCrossover } from '@/lib/rsi';
 import { fetchDailyCloses, type Bar } from '@/lib/fmp-history';
-import { kvGet, kvSet, isKVConfigured, priceHistoryKey, RSI_ALERTS_KEY } from '@/lib/kv';
+import { getPriceHistory, setPriceHistory, setLatestAlerts, isDBConfigured } from '@/lib/db';
 import type { RsiAlert, RsiAlertsPayload } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -67,9 +67,9 @@ export async function GET(request: Request) {
     }
   }
 
-  if (!isKVConfigured()) {
+  if (!isDBConfigured()) {
     return NextResponse.json(
-      { error: 'KV not configured (KV_REST_API_URL / KV_REST_API_TOKEN missing)' },
+      { error: 'Database not configured (MARKET_PULSE_DATABASE_URL missing)' },
       { status: 503 }
     );
   }
@@ -94,7 +94,7 @@ export async function GET(request: Request) {
   for (const company of symbols) {
     const { symbol } = company;
     try {
-      const cached = (await kvGet<Bar[]>(priceHistoryKey(symbol))) ?? [];
+      const cached = (await getPriceHistory(symbol)) ?? [];
       const lastDate = cached.length ? cached[cached.length - 1].date : null;
 
       let bars: Bar[];
@@ -106,7 +106,7 @@ export async function GET(request: Request) {
         const from = lastDate ?? backfillFrom;
         const fresh = await fetchDailyCloses(symbol, from, today);
         bars = mergeBars(cached, fresh);
-        if (bars.length) await kvSet(priceHistoryKey(symbol), bars);
+        if (bars.length) await setPriceHistory(symbol, bars);
         await sleep(delayMs);
       }
 
@@ -143,7 +143,7 @@ export async function GET(request: Request) {
     ...(batchCount > 1 ? { batch: { index: batchIndex, count: batchCount } } : {}),
   };
 
-  await kvSet(RSI_ALERTS_KEY, payload);
+  await setLatestAlerts(payload);
 
   return NextResponse.json({
     ok: true,
