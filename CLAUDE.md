@@ -38,7 +38,7 @@ vercel.json                    # cron schedule (22:30 UTC)
 ```
 
 ## Key architecture decisions
-- **Ticker universe**: `data/sp500.json` (503) + `data/nasdaq100.json` (101) merged **at runtime** in `lib/universe.ts`, deduped by symbol, sorted → **517 tickers** total. Each carries `indices: ("S&P500"|"Nasdaq100")[]` (both if overlapping). No build step.
+- **Ticker universe (alerts)**: currently **Nasdaq 100 ONLY** (~100 tickers) — built in `lib/universe.ts` from `data/nasdaq100.json`, deduped, sorted. **Provisional**: S&P 500 was removed from the alert scan because testing showed many S&P mid-cap names return **FMP HTTP 402 (Payment Required)** on the free tier's historical endpoint, while large-cap Nasdaq-100 names are expected to have better free-tier coverage — pending the fail-rate test. `data/sp500.json` is **untouched** and still powers the earnings countdown (which imports it directly, not via `UNIVERSE`). To restore the combined ~517-ticker universe, re-add the `sp500` import + `add()` loop in `lib/universe.ts`.
 - **FMP historical endpoint**: use **`/stable/historical-price-eod/light?symbol=&from=&to=`** (returns `{date, price, volume}`).
   - ⚠️ **Trap**: `/api/v3/historical-price-full/...` is a **dead "Legacy Endpoint"** on this key (accounts created after 2025-08-31). The hyphenated `/stable/historical-price-eod-full` **404s**. Only the `.../light` (or `.../full` with a slash) path returns data. See [fmp-history.ts](lib/fmp-history.ts).
 - **RSI**: Wilder's smoothing in [lib/rsi.ts](lib/rsi.ts). Validated against the canonical 14-period reference: **70.46 / 66.25 / 37.79**. Periods 6/12/24 match Futu's default RSI1/RSI2/RSI3.
@@ -51,8 +51,8 @@ vercel.json                    # cron schedule (22:30 UTC)
 - **Incremental fetch**: cron appends only new days to cached history when possible (1 FMP call/ticker steady state), full backfill only on first run per symbol.
 
 ## Known constraints
-- **⚠️ FMP free tier = 250 calls/day, universe = 517 tickers.** `RSI_BATCH_COUNT` (intended value **3**) splits the scan across N days by day-of-year. **Real limitation, not just a note:** on free tier only **~1/3 of the universe is scanned each day**, so a same-day crossover in an unscanned batch is **MISSED — there is no catch-up mechanism.** If the alerts feature needs to be reliable, **upgrade the FMP tier** and set `RSI_BATCH_COUNT=1`.
-- **Vercel Hobby cron `maxDuration` = 60s.** The scan route sets `maxDuration = 60`. At ~150ms/call, a batch of ~172 fits; growing the universe or batch size risks timeouts. Raising it requires a Pro plan.
+- **FMP free tier = 250 calls/day.** With the current **Nasdaq-100-only (~100)** universe, a full daily scan fits comfortably under the limit, so **batching is auto-disabled**: the cron route forces `batchCount = 1` when `UNIVERSE.length < BATCH_THRESHOLD` (200), regardless of `RSI_BATCH_COUNT`. If the universe grows back over ~250 (e.g. re-adding S&P 500 → ~517), set `RSI_BATCH_COUNT=2/3` — but note batch mode only scans 1/N of the universe per day (same-day crossovers in unscanned batches are missed, no catch-up), so a paid FMP tier is better for reliability.
+- **Vercel Hobby cron `maxDuration` = 60s.** The scan route sets `maxDuration = 60`. Nasdaq-100 (~100 @ ~150ms ≈ 15s) fits easily; a much larger universe or batch risks timeouts (raising it requires Pro).
 
 ## Env vars required
 | Var | Purpose |
@@ -60,7 +60,7 @@ vercel.json                    # cron schedule (22:30 UTC)
 | `FMP_API_KEY` | FMP data source. **Only ever via `process.env`, never hardcoded.** |
 | `MARKET_PULSE_DATABASE_URL` | Render Postgres connection string for the `market_pulse` DB. **Use the POOLED/PgBouncer variant.** Separate DB in the same instance as the finance-app (not shared tables). |
 | `CRON_SECRET` | Guards `/api/cron/rsi-scan`; sent by Vercel Cron as `Authorization: Bearer <value>`. |
-| `RSI_BATCH_COUNT` | Splits the universe across N days (free-tier workaround; use `3`, or `1` on a paid FMP plan). |
+| `RSI_BATCH_COUNT` | Splits the universe across N days (free-tier workaround). **Currently a no-op** — batching auto-disables for the small Nasdaq-100 universe; set to `1`. Only relevant if S&P 500 is re-added (~517). |
 | `RSI_SCAN_DELAY_MS` | Optional; gap between FMP calls (default 150). |
 
 Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values.
@@ -90,12 +90,12 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 
 ## Open items / next steps
 - **Git connect**: ✅ DONE — repo is connected, push-to-`main` auto-deploys to the personal `market-pulse`.
-- **Env vars on the personal `market-pulse`**: none set yet. Add all in the dashboard (Settings → Environment Variables): `FMP_API_KEY` (copy the value from traderpwa-pro), `MARKET_PULSE_DATABASE_URL` (the **pooled** Render Postgres string), `CRON_SECRET` (new random string), `RSI_BATCH_COUNT=3`.
+- **Env vars on the personal `market-pulse`**: none set yet. Add all in the dashboard (Settings → Environment Variables): `FMP_API_KEY` (copy the value from traderpwa-pro), `MARKET_PULSE_DATABASE_URL` (the **pooled** Render Postgres string), `CRON_SECRET` (new random string), `RSI_BATCH_COUNT=1` (Nasdaq-100-only universe — batching auto-disabled anyway).
 - **Render Postgres DB not yet provisioned**: create a **separate `market_pulse` database** within the existing Render Postgres instance (same one the finance-app uses — NOT shared tables), run `migrations/001_init_rsi_cache.sql` against it, and put the **pooled** connection string in `MARKET_PULSE_DATABASE_URL`. Until set, `/alerts` shows the graceful empty state.
 - **First cron run** must be triggered **manually once** after the DB + `CRON_SECRET` are set:
   ```bash
   curl -H "Authorization: Bearer <CRON_SECRET>" https://market-pulse-tau-ten.vercel.app/api/cron/rsi-scan
   ```
-- **Russell index deliberately excluded** from the alert universe for now (S&P 500 + Nasdaq 100 only).
+- **Alert universe = Nasdaq 100 only** (provisional; S&P 500 removed to dodge free-tier HTTP 402s — see Key architecture decisions). Russell also excluded.
 
 @AGENTS.md

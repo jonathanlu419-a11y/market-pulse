@@ -1,8 +1,15 @@
 /**
- * Combined S&P 500 + Nasdaq 100 ticker universe, deduplicated by symbol.
- * Merged at runtime from the two static source files — no build step needed.
+ * RSI-alert ticker universe.
+ *
+ * Currently **Nasdaq 100 ONLY** (provisional). S&P 500 was removed from the
+ * alert scan because many S&P mid-cap names return FMP HTTP 402 (Payment
+ * Required) on the free tier's historical endpoint, whereas large-cap
+ * Nasdaq-100 names are expected to have better free-tier coverage. We're
+ * testing the fail rate. `data/sp500.json` is untouched and still powers the
+ * earnings countdown — this change is scoped to the alerts feature.
+ *
+ * To restore the combined universe, re-add the sp500 import + its add() loop.
  */
-import sp500 from '@/data/sp500.json';
 import nasdaq100 from '@/data/nasdaq100.json';
 
 export type IndexName = 'S&P500' | 'Nasdaq100';
@@ -38,7 +45,6 @@ function buildUniverse(): UniverseCompany[] {
     }
   };
 
-  for (const c of sp500 as RawCompany[]) add(c, 'S&P500');
   for (const c of nasdaq100 as RawCompany[]) add(c, 'Nasdaq100');
 
   // Stable, deterministic ordering by symbol so batch slicing is reproducible across runs

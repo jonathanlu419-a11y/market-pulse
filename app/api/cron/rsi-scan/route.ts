@@ -7,26 +7,27 @@ import type { RsiAlert, RsiAlertsPayload } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// Hobby plan caps function duration at 60s. With ~517 tickers @ ~150ms each the
-// FULL universe won't fit in one run — that's why batch mode exists (below).
+// Hobby plan caps function duration at 60s. The current Nasdaq-100-only universe
+// (~100 tickers @ ~150ms ≈ 15s) fits comfortably in one run.
 export const maxDuration = 60;
 
 const LOOKBACK_CALENDAR_DAYS = 190; // ≈130 trading days — ample seed for a stable Wilder RSI24
 const KEEP_BARS = 90; // trim cached history to the last ~90 trading days
 const DEFAULT_DELAY_MS = 150; // polite gap between FMP calls to avoid bursting
+// Universes smaller than this fit under the FMP free tier (250/day) in a single
+// run, so batching is auto-disabled regardless of RSI_BATCH_COUNT.
+const BATCH_THRESHOLD = 200;
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ ⚠ FMP RATE LIMIT                                                          │
-// │ The combined S&P 500 + Nasdaq 100 universe is ~517 tickers. Steady state │
-// │ is ~1 FMP call per ticker per day (incremental append), i.e. ~517/day.   │
-// │ The FMP FREE tier allows only 250 calls/day, so a single daily full scan │
-// │ WILL hit the limit and later symbols will be skipped.                    │
+// │ FMP FREE tier = 250 calls/day; steady state is ~1 call per ticker/day.   │
+// │ The alert universe is currently **Nasdaq 100 only (~100 tickers)**, well │
+// │ under the limit — so batching is OFF automatically (see BATCH_THRESHOLD).│
 // │                                                                           │
-// │ FALLBACK: set RSI_BATCH_COUNT=2 (or 3 to stay comfortably under 250) to  │
-// │ split the universe across alternating days. Each run scans 1/N of the    │
-// │ universe, chosen by day-of-year, so every symbol is refreshed every N    │
-// │ days. In batch mode the alert list reflects only the symbols scanned     │
-// │ that day (crossovers are a "today only" event, so this is acceptable).   │
+// │ If the universe grows back over ~250 (e.g. re-adding S&P 500 → ~517),    │
+// │ set RSI_BATCH_COUNT=2/3 to split the scan across days by day-of-year.    │
+// │ In batch mode the alert list reflects only the symbols scanned that day  │
+// │ (crossovers are a "today only" event, so this is acceptable).            │
 // └─────────────────────────────────────────────────────────────────────────┘
 
 function utcDateKey(offsetDays = 0): string {
@@ -78,7 +79,9 @@ export async function GET(request: Request) {
   }
 
   const delayMs = Number(process.env.RSI_SCAN_DELAY_MS) || DEFAULT_DELAY_MS;
-  const batchCount = Math.max(1, parseInt(process.env.RSI_BATCH_COUNT || '1', 10) || 1);
+  const requestedBatchCount = Math.max(1, parseInt(process.env.RSI_BATCH_COUNT || '1', 10) || 1);
+  // Auto-disable batching for small universes — they fit under the free tier in one run.
+  const batchCount = UNIVERSE.length < BATCH_THRESHOLD ? 1 : requestedBatchCount;
   const batchIndex = batchCount > 1 ? dayOfYearUTC() % batchCount : 0;
 
   // Deterministic slice of the (symbol-sorted) universe for today's batch
