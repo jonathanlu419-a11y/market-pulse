@@ -65,14 +65,19 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 
 ## Deployment
 - **GitHub**: `jonathanlu419-a11y/market-pulse` (public).
-- **Vercel (primary)**: project **`market-pulse`** (team `eastlink`) → https://market-pulse-mu-nine.vercel.app
-  - **Auto-deploy on push to `main`** once the Vercel project is git-connected (see Open items — git connect not yet completed; CLI can't do the GitHub App OAuth).
-  - Local dir is linked to this project (`.vercel/project.json` → `market-pulse`).
-- **Vercel (prior/parallel, NOT primary, NOT deleted)**: project **`traderpwa-pro`** → https://traderpwa-pro.vercel.app — an earlier parallel deployment of this same codebase. Left as-is and unmanaged; do not deploy to it or change it.
-- CLI deploy to market-pulse (works today, from this non-standard dir):
+- **Vercel (primary)**: project **`market-pulse`** under the **personal account `jonathanlu419-a11ys-projects`** (whoami `jonathanlu419-a11y`) → **https://market-pulse-tau-ten.vercel.app**
+  - Dashboard: https://vercel.com/jonathanlu419-a11ys-projects/market-pulse
+  - **GitHub repo IS connected** → **auto-deploy on push to `main`** works (the repo owner and this Vercel account match, so the GitHub App authorized automatically).
+  - Local `.vercel/project.json` → this project (`orgId` `team_XgiPD58dVJuIqKfE0X9zTknd`).
+- **Vercel (orphaned, DO NOT USE / DO NOT TOUCH)**: a **second `market-pulse` under the `eastlink` team** (https://market-pulse-mu-nine.vercel.app, orgId `team_I6oU9JiLfI7AjEGb5EnyqXaQ`) was created there by accident. Unused, left alone intentionally.
+- **Vercel (prior/parallel, NOT primary, NOT deleted)**: project **`traderpwa-pro`** (also under `eastlink`) → https://traderpwa-pro.vercel.app — an earlier parallel deployment of this same codebase. Left as-is and unmanaged.
+- ⚠️ **CLI account/config gotcha (critical for this machine)**: Git Bash resolves the Vercel CLI config to `AppData/Roaming/xdg.data/com.vercel.cli` (a **stale** login → `hoho2000419-6459`, whose only scope is `eastlink`). The real/personal login lives in the native path `AppData/Local/com.vercel.cli`. So from Git Bash you MUST pass `--global-config` to hit the right account:
   ```bash
-  npx vercel --cwd "C:\Users\Jonathan Lu\trader-pwa" --prod --scope eastlink
+  GC="C:/Users/Jonathan Lu/AppData/Local/com.vercel.cli"
+  vercel whoami --global-config "$GC"        # → jonathanlu419-a11y (NOT hoho2000419-6459)
+  vercel --prod   --global-config "$GC"      # deploy to personal market-pulse
   ```
+  Without `--global-config`, `vercel` silently uses the wrong account and can relink to the eastlink project. Always verify `whoami` first.
 - Before "done": run `npx next build` and `npx eslint app lib`.
 
 ## GitHub account note
@@ -82,13 +87,13 @@ Local dev: copy `.env.example` → `.env.local` (git-ignored) and fill in values
 - The repo remote is **HTTPS** (SSH failed host-key verification on this machine; HTTPS + `gh` credential helper works). Don't assume the "default" account or SSH.
 
 ## Open items / next steps
-- **Env vars on `market-pulse`**: none set yet. Must add all in the dashboard: `FMP_API_KEY`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `CRON_SECRET`, `RSI_BATCH_COUNT`. (traderpwa-pro only ever had `FMP_API_KEY`.)
-- **KV not yet provisioned** (never was, on either project): add storage under the **`market-pulse`** project. Vercel KV is deprecated → use the **Upstash Redis** integration from the Vercel Marketplace (still sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, compatible with `@vercel/kv`). KV is **per-project** — it does not carry over from any other project. Until set, `/alerts` shows the graceful empty state.
+- **Git connect**: ✅ DONE — repo is connected, push-to-`main` auto-deploys to the personal `market-pulse`.
+- **Env vars on the personal `market-pulse`**: none set yet. Add all in the dashboard (Settings → Environment Variables): `FMP_API_KEY` (copy the value from traderpwa-pro), `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `CRON_SECRET` (new random string), `RSI_BATCH_COUNT=3`.
+- **KV not yet provisioned**: add storage under the personal **`market-pulse`** project. Vercel KV is deprecated → use the **Upstash Redis** integration from the Vercel Marketplace (Storage tab; still sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, compatible with `@vercel/kv`). Per-project — does not carry over. Until set, `/alerts` shows the graceful empty state.
 - **First cron run** must be triggered **manually once** after KV + `CRON_SECRET` are set:
   ```bash
-  curl -H "Authorization: Bearer <CRON_SECRET>" https://market-pulse-mu-nine.vercel.app/api/cron/rsi-scan
+  curl -H "Authorization: Bearer <CRON_SECRET>" https://market-pulse-tau-ten.vercel.app/api/cron/rsi-scan
   ```
-- **Git connect (blocked via CLI)**: `vercel git connect` fails headlessly (Vercel GitHub App OAuth can't complete without a browser). Connect via dashboard: **market-pulse → Settings → Git → Connect Git Repository → authorize the Vercel GitHub App for `jonathanlu419-a11y` → select `jonathanlu419-a11y/market-pulse`**. After connecting, push-to-`main` auto-deploys.
 - **Russell index deliberately excluded** from the alert universe for now (S&P 500 + Nasdaq 100 only).
 
 @AGENTS.md
