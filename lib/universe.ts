@@ -10,7 +10,7 @@
  *
  * `indices` (S&P500 / Nasdaq100 badges shown on /alerts) is derived at runtime by
  * cross-referencing the index files — those imports are for badge tagging ONLY,
- * not universe membership. `data/sp500.json` also still powers the earnings feature.
+ * not universe membership.
  */
 import watchlist from '@/data/watchlist.json';
 import sp500 from '@/data/sp500.json';

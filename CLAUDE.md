@@ -4,8 +4,8 @@ Reference for future Claude Code sessions. Keep it current.
 
 ## Project overview
 - **Market Pulse** — a personal web app with two features:
-  1. **Earnings countdown** (`/`) — upcoming **S&P 500** earnings, sorted by live countdown (soonest first), searchable.
-  2. **RSI crossover alerts** (`/alerts`) — daily scan of the combined **S&P 500 + Nasdaq 100** universe for an RSI6-over-RSI12/24 crossover signal.
+  1. **Earnings countdown** (`/`) — upcoming earnings for the curated **watchlist** (`data/watchlist.json`), sorted by live countdown (soonest first), searchable.
+  2. **RSI crossover alerts** (`/alerts`) — daily scan of the same **watchlist** for an RSI6-over-RSI12/24 crossover signal.
 - **Audience**: Jonathan only — solo personal project, not a team/product.
 
 ## Tech stack

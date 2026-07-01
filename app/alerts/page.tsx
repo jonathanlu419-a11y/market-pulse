@@ -67,7 +67,7 @@ export default function AlertsPage() {
           RSI Crossover Alerts
         </h1>
         <p className="mt-1.5 text-sm text-slate-400">
-          S&amp;P 500 + Nasdaq 100 names where daily <span className="font-mono">RSI6</span> crossed
+          Watchlist names where daily <span className="font-mono">RSI6</span> crossed
           above <span className="font-mono">both RSI12 and RSI24</span> today (Futu 6/12/24 periods).
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
