@@ -1,34 +1,42 @@
 import { NextResponse } from 'next/server';
 import { UNIVERSE } from '@/lib/universe';
 import { detectCrossover } from '@/lib/rsi';
-import { fetchDailyCloses, type Bar } from '@/lib/fmp-history';
+import { fetchDailyCloses, TD_FREE_DELAY_MS, type Bar } from '@/lib/twelvedata-history';
 import { getPriceHistory, setPriceHistory, setLatestAlerts, isDBConfigured } from '@/lib/db';
 import type { RsiAlert, RsiAlertsPayload } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// Hobby plan caps function duration at 60s. The current Nasdaq-100-only universe
-// (~100 tickers @ ~150ms ≈ 15s) fits comfortably in one run.
+// Hobby caps function duration at 60s. At ~7.5s/symbol (Twelve Data free tier)
+// only ~6 symbols fit per run — see RUN_BUDGET_MS and the rate-limit note below.
 export const maxDuration = 60;
 
 const LOOKBACK_CALENDAR_DAYS = 190; // ≈130 trading days — ample seed for a stable Wilder RSI24
 const KEEP_BARS = 90; // trim cached history to the last ~90 trading days
-const DEFAULT_DELAY_MS = 150; // polite gap between FMP calls to avoid bursting
-// Universes smaller than this fit under the FMP free tier (250/day) in a single
-// run, so batching is auto-disabled regardless of RSI_BATCH_COUNT.
+const DEFAULT_DELAY_MS = TD_FREE_DELAY_MS; // 7500ms — respect Twelve Data free tier (8 credits/min)
+// Below this size a universe *could* fit under a data provider's limit in one run,
+// so batching auto-disables. Kept as a dormant safety valve (see rate-limit note).
 const BATCH_THRESHOLD = 200;
+// Stop fetching before Hobby's 60s hard limit and persist progress cleanly.
+const RUN_BUDGET_MS = 50_000;
 
-// ┌─────────────────────────────────────────────────────────────────────────┐
-// │ ⚠ FMP RATE LIMIT                                                          │
-// │ FMP FREE tier = 250 calls/day; steady state is ~1 call per ticker/day.   │
-// │ The alert universe is currently **Nasdaq 100 only (~100 tickers)**, well │
-// │ under the limit — so batching is OFF automatically (see BATCH_THRESHOLD).│
-// │                                                                           │
-// │ If the universe grows back over ~250 (e.g. re-adding S&P 500 → ~517),    │
-// │ set RSI_BATCH_COUNT=2/3 to split the scan across days by day-of-year.    │
-// │ In batch mode the alert list reflects only the symbols scanned that day  │
-// │ (crossovers are a "today only" event, so this is acceptable).            │
-// └─────────────────────────────────────────────────────────────────────────┘
+// ┌───────────────────────────────────────────────────────────────────────────┐
+// │ ⚠ TWELVE DATA FREE-TIER RATE LIMIT (data source for RSI alerts)            │
+// │ Basic/free plan = 8 API credits/MINUTE, 800/day. /time_series = 1 credit   │
+// │ per symbol, and the per-minute cap is CREDITS (batching doesn't help).     │
+// │ ⇒ ~8 symbols/minute max; each call is paced DEFAULT_DELAY_MS (7.5s) apart. │
+// │                                                                             │
+// │ A Vercel cron function can't stay alive long enough to fetch a large       │
+// │ universe: ~517 symbols ≈ 65 min, ~101 ≈ 13 min, both ≫ the 60s limit. So   │
+// │ RUN_BUDGET_MS stops each run early (~6 symbols) and persists what it did.  │
+// │                                                                             │
+// │ To cover a large universe on the free tier, set RSI_BATCH_COUNT high       │
+// │ (≈ ceil(universe / 6)) so each day scans a rotating 1/N slice by           │
+// │ day-of-year — but that means a symbol is only refreshed every N days, so   │
+// │ "today's crossover" is really N-days-stale. For reliable daily full-       │
+// │ universe scans, UPGRADE Twelve Data (credits/min ≥ universe → one batch    │
+// │ call in seconds) or keep the universe ≤ ~6 symbols.                        │
+// └───────────────────────────────────────────────────────────────────────────┘
 
 function utcDateKey(offsetDays = 0): string {
   const d = new Date();
@@ -74,8 +82,8 @@ export async function GET(request: Request) {
       { status: 503 }
     );
   }
-  if (!process.env.FMP_API_KEY) {
-    return NextResponse.json({ error: 'FMP_API_KEY is not set' }, { status: 503 });
+  if (!process.env.TWELVE_DATA_API_KEY) {
+    return NextResponse.json({ error: 'TWELVE_DATA_API_KEY is not set' }, { status: 503 });
   }
 
   const delayMs = Number(process.env.RSI_SCAN_DELAY_MS) || DEFAULT_DELAY_MS;
@@ -93,8 +101,15 @@ export async function GET(request: Request) {
   const alerts: RsiAlert[] = [];
   let scanned = 0;
   let failed = 0;
+  let stoppedEarly = false;
+  const startedAt = Date.now();
 
   for (const company of symbols) {
+    // Stop before the serverless time limit and persist what we have.
+    if (Date.now() - startedAt > RUN_BUDGET_MS) {
+      stoppedEarly = true;
+      break;
+    }
     const { symbol } = company;
     try {
       const cached = (await getPriceHistory(symbol)) ?? [];
@@ -102,7 +117,7 @@ export async function GET(request: Request) {
 
       let bars: Bar[];
       if (lastDate && lastDate >= today) {
-        // Already fresh for today — recompute from cache, no FMP call
+        // Already fresh for today — recompute from cache, no Twelve Data call
         bars = cached;
       } else {
         // Incremental if we have history, otherwise a one-time full backfill
@@ -154,6 +169,8 @@ export async function GET(request: Request) {
     failed,
     alerts: alerts.length,
     universeSize: UNIVERSE.length,
+    sliceSize: symbols.length,
+    stoppedEarly, // true = hit RUN_BUDGET_MS before finishing this slice (free-tier limit)
     batch: batchCount > 1 ? { index: batchIndex, count: batchCount } : null,
     generatedAt: payload.generatedAt,
   });

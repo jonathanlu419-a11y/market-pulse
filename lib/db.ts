@@ -15,7 +15,7 @@
  * dashboard → your Postgres instance → Connections → "Pooled connection".
  */
 import { Pool } from 'pg';
-import type { Bar } from './fmp-history';
+import type { Bar } from './twelvedata-history';
 import type { RsiAlertsPayload } from './types';
 
 let pool: Pool | null = null;
